@@ -1,2 +1,63 @@
-# jenkinsfile
-Creating Pipeline
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'yourdockerhubusername/yourapp'
+    }
+
+    options {
+        skipStagesAfterUnstable()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/yourusername/yourrepo.git'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    dockerImage = docker.build("${env.IMAGE_NAME}:latest")
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    script {
+                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                        sh "docker push ${env.IMAGE_NAME}:latest"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                    sh '''
+                        export KUBECONFIG=$KUBECONFIG_FILE
+                        kubectl apply -f k8s/
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Pipeline failed.'
+        }
+    }
+}
+
